@@ -8,3 +8,9 @@ Revision history for Perl extension Eobj.
 	- Added inheritdir()
 	- Added destructors and the mechanism around it
 	- Improved doc based on Guy Keren's suggestions
+
+0.22  Tue Aug 12 15:47:17  2003
+        - Fixed bug in const, get, set and alike so they
+          don't think that every reference is a property
+          path (only arrays)
+

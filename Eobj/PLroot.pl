@@ -116,7 +116,7 @@ sub get {
   my $prop = shift;
   my $final;
 
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
 
   $final = $self->{join("\n", 'plPROP', @path)};
 
@@ -173,7 +173,7 @@ sub const {
   my $self = shift;
   my $prop = shift;
 
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
 
   my @newval = @_;
 
@@ -246,7 +246,7 @@ sub set {
   my $prop = shift;
 
   my @path;
-  @path = (ref($prop)) ? @{$prop} : ($prop);
+  @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
 
   my @newval = @_;
 
@@ -273,7 +273,7 @@ sub domutate {
 sub seteq {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   my $eq = shift;
   puke("Callbacks should be references to subroutines\n")
     unless (ref($eq) eq 'CODE');
@@ -283,7 +283,7 @@ sub seteq {
 sub addmagic {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   my $callback = shift;
 
   unless (defined($self->get([@path]))) {   
@@ -298,7 +298,7 @@ sub addmagic {
 sub pshift {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   my $pre = $self->getraw(@path);
   if (ref($pre) eq 'PL_settable') {
     return shift @{$pre}; 
@@ -312,7 +312,7 @@ sub pshift {
 sub ppop {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   my $pre = $self->getraw(@path);
   if (ref($pre) eq 'PL_settable') {
     return pop @{$pre}; 
@@ -326,7 +326,7 @@ sub ppop {
 sub punshift {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   
   my @val = @_;
 
@@ -341,7 +341,7 @@ sub punshift {
 sub ppush {
   my $self = shift;
   my $prop = shift;
-  my @path = (ref($prop)) ? @{$prop} : ($prop);
+  my @path = (ref($prop) eq 'ARRAY') ? @{$prop} : ($prop);
   
   my @val = @_;
 

@@ -67,7 +67,7 @@ END {
 
 @Eobj::ISA = qw[Exporter];
 @Eobj::EXPORT = qw[&init &override &underride &inherit &inheritdir &definedclass &globalobj];
-$Eobj::VERSION = '0.21';
+$Eobj::VERSION = '0.22';
 $Eobj::STARTTIME = localtime();
 
 $Eobj::eobjflag = 0;
