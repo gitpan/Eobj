@@ -53,14 +53,21 @@ END {
     warn ($_) 
       unless (defined $Eobj::classes{$class});
   }
+
+  # Now we destroy all objects in an orderly fashion...
+  foreach (sort { $b->get('eobj-object-count') <=> $a->get('eobj-object-count') } 
+	   values %Eobj::objects) {
+    $_->survivor();
+    $_->destroy();
+  }
 }
 
 # We use explicit package names rather than Perl 5.6.0's "our", so
 # perl 5.004 won't yell at us.
 
 @Eobj::ISA = qw[Exporter];
-@Eobj::EXPORT = qw[&init &override &underride &inherit &definedclass &globalobj];
-$Eobj::VERSION = '0.20';
+@Eobj::EXPORT = qw[&init &override &underride &inherit &inheritdir &definedclass &globalobj];
+$Eobj::VERSION = '0.21';
 $Eobj::STARTTIME = localtime();
 
 $Eobj::eobjflag = 0;
@@ -112,6 +119,59 @@ sub inherit {
   return 1;
 }
 
+sub inheritdir {
+  my $dir = shift;
+  my $papa = shift;
+
+  ($dir) = ($dir =~ /^(.*?)[\/\\]*$/); # Remove trailing slashes
+
+  blow("Nonexistent directory \'$dir\'\n")
+    unless (-d $dir);
+
+  do_inheritdir($dir, $papa);
+  return 1;
+}
+
+sub do_inheritdir {
+  my $dir = shift;
+  my $papa = shift;
+
+  ($dir) = ($dir =~ /^(.*?)[\/\\]*$/); # Remove trailing slashes
+
+  return unless (opendir(DIR,$dir));
+  my @files=sort readdir(DIR);
+  closedir(DIR);
+  my @dirs = ();
+  my %newclasses = ();
+
+  foreach my $file (@files) {
+    next if (($file eq '.') || ($file eq '..'));
+    my $thefile = $dir.'/'.$file;
+
+    if (-d $thefile) {
+      next unless ($file =~ /^[a-zA-Z][a-zA-Z0-9_]*$/);
+      push @dirs, $file, $thefile;
+    } else {
+      my ($class) = ($file =~ /^([a-zA-Z][a-zA-Z0-9_]*)\.pl$/i);
+      next unless (defined $class);
+      $class = lc $class; # Lowercase the class
+      blow("inheritdir: Attempt to create the already existing class \'".$class.
+	   "\' with \'$thefile\' (possibly symbolic link loop?)\n")
+	if ($Eobj::classes{$class});
+      inherit($class, $thefile, $papa);
+      $newclasses{$class} = 1;
+    }
+  }
+  while ($#dirs > 0) { # At least two entries...
+    my $newpapa = lc shift @dirs;
+    my $descend = shift @dirs;
+    
+    blow("inheritdir: Could not descend to directory \'$descend\' because there was no \'".
+	 $newpapa.".pl\' file in directory \'$dir\'\n")
+      unless ($newclasses{$newpapa});
+    do_inheritdir($descend, $newpapa);
+  }
+}
 
 sub override {
   my $class = shift;
@@ -284,6 +344,26 @@ sub linebreak {
 package PL_hardroot;
 package PL_settable;
 package PL_const;
+package PL_destroyed;
+use Eobj::PLerror;
+# Here we yell on all attempts to run a method on a destroyed
+# object. Only calling destroy is OK...
+$PL_destroyed::errorcrawl='system';
+
+sub destroy {
+  return undef;
+}
+
+sub AUTOLOAD {
+  my $class = shift;
+  my $method = $PL_destroyed::AUTOLOAD;
+  my ($package) = $method =~ /^(.*?)::/;
+  $method =~ s/.*:://;
+
+  return undef if ($method eq 'DESTROY');
+
+  blow("Attempt to call method \'$method\' on a destroyed object\n");
+}
 
 # And now the magic of autoloading.
 package UNIVERSAL;
@@ -346,13 +426,16 @@ Eobj - Easy Object Oriented programming environment
 
   use Eobj;
 
+  # define the 'myclass' class
   inherit('myclass','myclass.pl','root');
 
-  init;
+  init; # Always init before creating objects
 
+  # Now create an object, and put the handle in $object
   $object = myclass->new(name => 'MyObject');
-  $object->mymethod('hello');
+  $object->mymethod('hello'); # Call the 'mymethod' method
 
+  # Access some properties...
   $object->set('myscalar', 'The value');
   $scalar = $object->get('myscalar');
 
@@ -364,7 +447,8 @@ Eobj - Easy Object Oriented programming environment
   $object->set('myhash', %hash);
   %the_hash = $object->get('myhash');
 
-  globalobj->objdump(); # Dump debug info
+  # Dump some debug information
+  globalobj->objdump();
  
 
 =head1 DESCRIPTION
@@ -379,8 +463,88 @@ The real engine is still Perl.
 
 This man page is enough to get you going, but not more than that. If deeper
 understanding is needed, the documentation, which can be found in the
-Eobj guide, F<eobj.pdf> (PDF format), is the place to look. The PDF file
+Eobj Programmers guide, F<eobj.pdf> (PDF format), is the place to look. The PDF file
 should come along with the module files.
+
+=head1 CLASSES, OBJECTS, METHODS AND PROPERTIES
+
+If you are acquantied with object-oriented programming, just jump to the next section.
+If you're not, this little paragraph should explain some basics, but by all means
+additional reading is recommended.
+
+An object is a creature, which you generate by telling some I<class> to create an
+object for you. For example, 
+
+  $object = myclass->new(name => 'MyObject');
+
+This statement creates a new object of the class C<myclass>. In this context, C<myclass>
+would be the answer to "what kind of object did we just make?"
+
+The object's reference (sometimes called "handle") is returned and kept in $object. If we
+want to access the object, we do that by using the value stored in $object. This value
+is not a number nor a string, but it is otherwise handled like any other value in Perl
+(it can be returned from subroutines, copied, stored in lists, and so on).
+
+You can do two things with an object: You can call one of its
+methods, and you can manipulate its properties.
+
+=head2 Properties
+
+Each object has its own set of
+"local variables", which are its I<properties>. The only really special thing about
+properties is that they are related to a certain object, so changing the properties
+of one object does not affect another object.
+
+For example,
+
+  $object->set('myscalar', 'The value');
+
+sets the value of the property named C<myscalar> to the string 'The value'. If the
+property didn't exist, this statement created it. We may then read the string back with
+
+  $scalar = $object->get('myscalar');
+
+There is more about how to handle properties in this man page.
+
+=head2 Methods
+
+A method is exactly like a subroutine, only method calls are always related with an
+object. For example,
+
+ $object->mymethod('hello');
+
+means to tell the object, whose reference is stored in $object, to call a subroutine,
+which it recognizes as C<mymethod>.
+
+=head2 Classes
+
+A class is an "object factory". Objects are sometimes called "class instances". Beyond
+these metaphores, a class is simply a list of methods, which the object should recognize
+and execute when it's asked to.
+
+When we create an object, we choose a class. By this choice, we're actually choosing what
+methods our object will support, and what these methods will do, and also what initial
+properties our object will carry. It's not that we're necessarily aware of each method
+and property, but nevertheless we choose them by choosing the class.
+
+Note that even though a class consists of a list of subroutines, they work differently
+from plain subroutines: Methods are always called from an object, and the actual action
+taken by a method often depends on the object's properties. 
+
+=head2 Inheritance
+
+No class is written from scratch. We don't want to define each method that the object
+should support explicitly, every time we want to write a new class.
+
+Rather, we I<inherit> methods from already existing classes: We create a new class by defining
+only the methods that are special for this specific class. Then, when declaring the new
+class, we explicitly point at some other class, and say something like "if you can't find
+a method in our class declaration, look in this class for it". The result is a new class,
+which supports all methods that the previous class supported, plus a few more.
+
+It's possible to re-declare certain methods. It's also possible to extend methods, so
+a call to the method will carry out whatever it did before plus something extra, that
+we wanted. See "DECLARING CLASSES" below.
 
 =head1 HOW IT ALL WORKS
 
@@ -395,12 +559,12 @@ The main script is divided in two phases:
 
 =over 4
 
-=item 1.
+=item *
 
 Declaration of classes. The main script tells what classes it wants to have, and what
 source file declares each class' methods.
 
-=item 2.
+=item *
 
 Creating and using objects. This is usually where the main script does something
 useful: Objects are created, their methods are called, and so on.
@@ -428,6 +592,15 @@ in the Synopsis could very well consist of exactly the following:
 
 This subroutine definition (in effect, method definition) could be followed
 by other similar subroutine definitions.
+
+When a method is called, the first argument is a reference ("handle") to the
+object through which it was called. It's common to store this reference in a
+scalar named $self (as in the above example).
+
+After the C<shift> operation, which removed the first argument from C<@_>,
+the argument list looks just like a normal subroutine call. Therefore, the
+second C<shift> operation is related to the parameter that was passed to the
+method when calling it, and it's put in $what.
 
 =head2 Rules for writing classes
 
@@ -489,7 +662,7 @@ plain subroutines.
 
 A class is declared by pointing at a source file (which consists of method declarations),
 and bind its methods with a class name. This is typically done with either
-inherit() or override(). For example,
+C<inherit()> or C<inheritdir()>. For example,
 
   inherit('myclass','myclass.pl','root');
 
@@ -501,50 +674,46 @@ As a result of this declaration, it will be possible to create a new object with
 C<myclass-E<gt>new(...)>. 
 
 Note that there is no necessary connection between the class' name and the name
-of the source file. Also, it should be noted that the source file is not read
+of the source file when C<inherit()> is used.
+Also, it should be noted that the source file is not read
 by the the Perl parser until it's specifically needed (usually because an object
 is created).
 
-Sometimes it's convenient to add methods to an existing class, without changing
-the class' name. This is especially useful when we want to change the root class.
+C<inheritdir()> is used to to declare several classes with a single call. The given
+file directory path is scanned for source files. A class inheritance tree can be
+set up by setting up the file directory tree in a straightforward way. This is
+explained further in the programmer's guide.
 
-Suppose that we want the methods in the F<myclass.pl> file to be recognized by
-all objects. We would then declare
+Also, it's possible to add and extend methods of an existing class, without changing
+its name. For example, it's possible to change the methods of the C<root> class, which
+will affect all objects that are created. See the section about C<override()> in
+the programmer's guide.
 
-  inherit('root','myclass.pl');
-
-Since all classes are based on C<root>, all classes inherit the methods given in
-F<myclass.pl>. Note that this includes classes that were declared I<before> the
-override() call.
-
-override() can be used on any class, not only C<root>, of course. It's a useful tool
-to set default properties for all objects (by altering the new() method), but care
-should be taken not to abuse override().
-
-A call to init() is mandatory after all class declarations (inherit() and override()
+A call to init() is mandatory after all class declarations (inherit() and inheritdir()
 statements) and before creating the first object is generated. 
 
 =head2 Overriding methods
 
-If a method, which is defined in the class source file, already exists in the classes
-from which the new class is derived, the class source file's method overrides the
-derived class' method. This means that the source class' method will be used I<instead>
-of the derived class' method.
+Suppose that we defined class C<parent> with a method named C<foo()>.
+Later we define class C<child>, that inherits from class C<parent>,
+and also contains a method named C<foo()>. If a user instantiates an
+object of class C<child>, and invokes method C<foo()>, then the method 
+C<foo()> of the C<child> class is invoked, rather than the ome of C<parent>.
+This is called I<method overriding> (and is common in many OO-languages).
 
-In many cases, we don't want our new method to come instead of the previous one, but
-rather extend the method to do somthing in addition to what it did before.
+In the above case, method C<foo()> of class C<child> completely hides
+method C<foo()> of class C<parent>. If we want method C<foo()> of C<child>
+class to extend, rather than replace C<foo()> of C<parent>, we could 
+use something like the following, in the code of C<foo()> of C<child>:
 
-Suppose, for example, that we inherited a method called mymethod(), which we want to extend.
-The following declaration will do the job:
-
-  sub mymethod {
+  sub foo {
     my $self = shift;
-    $self->SUPER::mymethod(@_);
+    $self->SUPER::foo(@_);
   
     # Here we do some other things...
   }
 
-Note that we call the inherited mymethod() after shifting off the $self argument, buf before
+Note that we call the inherited foo() after shifting off the $self argument, buf before
 doing anything else. This makes sure that the inherited method gets an unaltered list of
 arguments. When things are organized like this, both methods may C<shift> their argument lists
 without interfering with each other.
@@ -555,25 +724,41 @@ inherited method's. Besides, we ignore any return value that the method returned
 Whenever the return value is of interest, or we want to run our code before the inherited
 method's, the following schema should be used:
 
-  sub mymethod {
+  sub foo {
     my $self = shift;
   
     # Here we do some other things...
     # Be careful not to change @_ !
 
-    return $self->SUPER::mymethod(@_);
+    return $self->SUPER::foo(@_);
   }
-
-The problem with this way of doing it, is that if we accidentally change the argument list
-@_, the overridden method will misbehave, which will make it look like a bug in the overridden
-method (when the bug is really ours).
 
 Note that this is the easiest way to assure that the return value will be passed on correctly.
 The inherited method may be context sensitve (behave differently if a scalar or list are exptected
 as return value), and the last implementation above assures that context is passed correctly.
 
-The new() method should be handled with extra care. The implementation
-of the method should always be as follows:
+The problem with this way of doing it, is that if we accidentally change the argument list
+@_, the overridden method will misbehave, which will make it look like a bug in the overridden
+method (when the bug is really ours).
+
+This could be solved by storing the arguments in some temporary variable, like:
+
+  sub foo {
+    my $self = shift;
+    my @save_args = @_;
+  
+    # Here we do some other things...
+    # We can change @_ now!
+  
+    return $self->SUPER::foo(@save_args);
+  }
+
+All this was true for methods that work on an already existing object. The C<new()>
+method is an exception, because it is there to create the object.
+
+Extending the C<new()> method is often a good idea, usually to initialize the newly
+born object with some properties. It's nevertheless important to stick to the following
+format, or strange things may happen:
 
   sub new {
     my $this = shift;
@@ -591,14 +776,22 @@ Objects are created by calling the new() method of the class. Something in the s
 
   $object = myclass->new(name => 'MyObject');
 
-(You didn't for forget to call init() before creating an object, did you?)
+(You didn't forget to call init() before creating an object, did you?)
 
 This statement creates a new object of class C<myclass>, and puts its reference (handle,
 if you want) in $object. The object is also given a name, C<Myobject>.
 
-Every object must be created with  a unique name. This name is used in error messages,
+Every object must be created with a unique name. This name is used in error messages,
 and it's also possible to get an object's reference by its name with the C<root>
 class' objbyname() method. The object's name can not be changed.
+
+If a name isn't given explicitly, like in
+
+  $object = myclass->new();
+
+Eobj will choose a name for the object, which can't be changed later on. It's highly
+recommended to overcome this laziness, and choose a short but descriptive name for
+each object.
 
 Since a fatal error occurs when trying to create an object with an already existing name,
 the C<root> class' method suggestname() will always return a legal name to create a new
@@ -622,18 +815,33 @@ For example,
 
   myclass->mymethod('Hello');
 
+=head1 OBJECT CONSTRUCTORS AND DESTRUCTORS
+
+Objects are created with the C<new()> method. In general, there is no need to explicitly
+define one of your own, and if you do, it must be based on Eobj's native C<new()> method
+(see Overriding methods above). In particular, this is useful for creating classes which
+set up properties upon creation.
+
+An object is destroyed by calling its C<destroy()> method. There is no need to call this
+method explicitly unless you need a certain object destroyed at a certain time.
+
+It's also possible to extend this method, in order to clean up things just before going down.
+
+If how and when objects are destroyed is of your concern, or if you want to do something
+just before that, there's a section dealing with that issue in the Programmer's guide.
+
 =head1 OBJECT'S PROPERTIES
 
 Each object carries its own local variables. These are called the object's I<properties>.
 
 The properties are accessed with mainly two methods, get() and set(). const() is used
-to create constant properties, which is described in the PDF guide.
+to create constant properties, which is described in the programmer's guide.
 
   $obj->set($prop, X);
 
 Will set $obj's property $prop to X, where X is either a scalar, a list or a hash.
 
-One can the reobtain the value by calling
+One can the obtain the value by calling
 
   X = $obj->get($prop);
 
@@ -646,7 +854,7 @@ responsibility to handle the types correctly.
 
 Use set() and get() to write and read properties in the spirit of this man page's
 Synopsis (beginning of document). It's simple and clean, but if you want to do something
-else, there is much more to read about that in the PDF guide.
+else, there is much more to read about that in the programmer's guide.
 
 =head1 THE GLOBAL OBJECT
 
@@ -712,22 +920,26 @@ Unlike Carp, there is no attepmt to distinguish between the "original caller", o
 application, there is no way to draw the line between "module" and "application".
 
 It is possible to declare a class as "hidden" or "system", which will make it disappear
-from stack traces. This is explained in the PDF guide.
+from stack traces. This is explained in the programmer's guide.
 
 =head1 ISSUES NOT COVERED
 
-The following issues are covered in the Eobj guide (F<eobj.pdf>), and not in this
+The following issues are covered in the Eobj programmer's guide (F<eobj.pdf>), and not in this
 man page. Just so you know what you're missing out... ;)
 
 =over 4
 
 =item *
 
-The and underride() function
+The override() and underride() functions
 
 =item *
 
 Constant properties
+
+=item *
+
+Magic callbacks: How to make properties depend on each other.
 
 =item *
 
@@ -752,7 +964,7 @@ objbyname(), prettyval() and linebreak()
 
 The following functions are exported to the main script:
 
-init(), override(), underride(), inherit(), definedclass(), globalobj()
+init(), override(), underride(), inherit(), inheritdir(), definedclass(), globalobj()
 
 These functions are exported everywhere (can be used by classes as well):
 
@@ -761,8 +973,8 @@ blow(), puke(), wiz(), wizreport(), fishy(), wrong(), say(), hint(), wink()
 These methods are part of the C<root> class, and should not be overridden
 unless an intentional change in their functionality is desired:
 
-new(), who(), safewho(), isobject(), objbyname(), suggestname(), get(),
-const(), set(),  seteq(), addmagic(), pshift(), ppop(),
+new(), destroy(), survivor(), who(), safewho(), isobject(), objbyname(),
+suggestname(), get(), const(), set(),  seteq(), addmagic(), pshift(), ppop(),
 punshift(), ppush(), globalobj(), linebreak(), objdump(), prettyval()
 
 store_hash(), domutate(), getraw()
@@ -791,6 +1003,13 @@ These are the bugs that are known as of yet:
 
 Doesn't work with C<use strict> due to some games with references. Does work with
 C<use strict 'vars'>, though.
+
+=item *
+
+The environment doesn't tolerate a change in home directory (with C<chdir>) if any of
+the files used in C<inherit()>, C<inheritdir()> or the likes were given as a path relative
+to the current directory. Since the files are loaded only when the respective classes are
+used, changing the directory is prohibited at any stage of the execution.
 
 =back
 

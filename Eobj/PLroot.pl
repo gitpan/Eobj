@@ -33,23 +33,41 @@ sub new {
   $self->store_hash([], @_);
 
   my $name = $self->get('name');
-  puke("New \'$class\' object created without the 'name' property set\n")
-    unless (defined $name);
-  puke("New \'$class\' object created with illegal name: ".$self->prettyval($name)."\n")
-    unless ($name=~/^[a-zA-Z_]\w*$/);
 
-  blow("New \'$class\' object created with an already occupied name: \'$name\'\n")
-    if (exists $Eobj::objects{$name});
-  my $lc = lc($name);
-  foreach (keys %Eobj::objects) {
-    blow("New \'$class\' object created with a name \'$name\' when \'$_\' is already in the system (only case difference)\n")
-      if (lc($_) eq $lc);
+  if (defined $name) {
+    puke("New \'$class\' object created with illegal name: ".$self->prettyval($name)."\n")
+      unless ($name=~/^[a-zA-Z_]\w*$/);
+
+    blow("New \'$class\' object created with an already occupied name: \'$name\'\n")
+      if (exists $Eobj::objects{$name});
+    my $lc = lc($name);
+    foreach (keys %Eobj::objects) {
+      blow("New \'$class\' object created with a name \'$name\' when \'$_\' is already in the system (only case difference)\n")
+	if (lc($_) eq $lc);
+    }
+  } else {
+    # No name given? Let's be forgiving, and give one of our own...
+    $name = $self->suggestname('DefaultName');
+    $self->const('name', $name);
   }
   $Eobj::objects{$name}=$self;
 
   $self -> const('eobj-object-count', $Eobj::objectcounter++);
   return $self;
 }  
+
+sub destroy {
+  my $self = shift;
+  my $name = $self->get('name');
+
+  delete $Eobj::objects{$name};
+  bless $self, 'PL_destroyed';
+  undef %{$self};
+
+  return undef;
+}
+
+sub survivor { } # So method is recognized
 
 sub who {
   my $self = shift;

@@ -3,3 +3,8 @@ Revision history for Perl extension Eobj.
 0.20  Mon Apr 21 13:54:00 2003
 	- First version extracted from Perlilog
 
+0.21  Mon May 5 14:10:00 2003
+	- Added autonaming in root's new() method.
+	- Added inheritdir()
+	- Added destructors and the mechanism around it
+	- Improved doc based on Guy Keren's suggestions
