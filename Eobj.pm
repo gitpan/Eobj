@@ -67,7 +67,7 @@ END {
 
 @Eobj::ISA = qw[Exporter];
 @Eobj::EXPORT = qw[&init &override &underride &inherit &inheritdir &definedclass &globalobj];
-$Eobj::VERSION = '0.22';
+$Eobj::VERSION = '0.23';
 $Eobj::STARTTIME = localtime();
 
 $Eobj::eobjflag = 0;
@@ -98,7 +98,7 @@ unless ($Eobj::eobjflag) {
   inherit('site_init',"${Eobj::classhome}site_init.pl",'PL_hardroot');
 }
 
-sub init {
+sub init {  
   site_init -> init;
 }
 sub inherit {
@@ -306,6 +306,7 @@ sub globalobj {
 sub linebreak {
   my $data = shift;
   my $extraindent = shift;
+
   $extraindent = '' unless (defined $extraindent);
 
   my @chunks = split("\n", $data);
@@ -337,7 +338,9 @@ sub linebreak {
     }
     $_ = $realout;
   }
-  return join("\n", @chunks);
+  my $final = join("\n", @chunks);
+  $final .= "\n" if ($data =~ /\n$/);
+  return $final;
 }
 
 # Just empty packages (used by PLroot).
@@ -1024,6 +1027,8 @@ Eli Billauer, E<lt>elib@flextronics.co.ilE<gt>
 
 =head1 SEE ALSO
 
-The Perlilog project: L<http://www.opencores.org/perlilog/>.
+The Perlilog project: L<http://www.opencores.org/perlilog/>
+
+The author's home page: L<http://www.billauer.co.il/>
 
 =cut
